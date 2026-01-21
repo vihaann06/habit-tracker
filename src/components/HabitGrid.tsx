@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PeriodSelect, { PeriodValue } from "@/components/PeriodSelect";
 import { Habit, HabitLog } from "@/types";
 
@@ -11,6 +11,9 @@ type HabitGridProps = {
   periodOptions?: PeriodValue[];
   onPeriodChange?: (value: PeriodValue) => void;
   onToggle: (dateISO: string, nextCompleted: boolean) => void;
+  readOnly?: boolean;
+  onRename?: (habit: Habit) => void;
+  onDelete?: (habit: Habit) => void;
 };
 
 type CalendarDay = {
@@ -55,6 +58,9 @@ const HabitGrid = ({
   periodOptions,
   onPeriodChange,
   onToggle,
+  readOnly = false,
+  onRename,
+  onDelete,
 }: HabitGridProps) => {
   const calendarDays = useMemo(
     () => calendar ?? buildCalendar(year ?? new Date().getFullYear()),
@@ -74,6 +80,17 @@ const HabitGrid = ({
   }, [calendarDays]);
 
   const renderSelector = onPeriodChange && periodOptions && periodOptions.length > 0;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handler = (event: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   return (
     <div className="grid-card">
@@ -82,16 +99,39 @@ const HabitGrid = ({
           <p className="eyebrow">Habit</p>
           <h3 className="card-title">{habit.title}</h3>
         </div>
-        {renderSelector ? (
-          <PeriodSelect
-            size="small"
-            value={periodValue ?? "last-365"}
-            options={periodOptions ?? []}
-            onChange={(val) => onPeriodChange?.(val)}
-          />
-        ) : year ? (
-          <div className="chip small">{year}</div>
-        ) : null}
+        <div className="grid-card__actions">
+          {renderSelector ? (
+            <PeriodSelect
+              size="small"
+              value={periodValue ?? "last-365"}
+              options={periodOptions ?? []}
+              onChange={(val) => onPeriodChange?.(val)}
+            />
+          ) : year ? (
+            <div className="chip small">{year}</div>
+          ) : null}
+          {(onRename || onDelete) && (
+            <div className="menu" ref={menuRef}>
+              <button className="menu-trigger ghost" type="button" onClick={() => setMenuOpen((v) => !v)}>
+                ⋮
+              </button>
+              {menuOpen && (
+                <div className="menu-items">
+                  {onRename && (
+                    <button className="menu-item" type="button" onClick={() => onRename(habit)}>
+                      Rename
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button className="menu-item danger" type="button" onClick={() => onDelete(habit)}>
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="habit-grid-wrapper">
@@ -137,7 +177,8 @@ const HabitGrid = ({
                           }
                         : undefined
                     }
-                    onClick={() => onToggle(day.iso, !completed)}
+                    disabled={readOnly}
+                    onClick={!readOnly ? () => onToggle(day.iso, !completed) : undefined}
                   />
                 );
               })}

@@ -70,20 +70,22 @@ const buildRangeCalendar = (start: Date, endInclusive: Date): CalendarDay[] => {
 };
 
 const getColorForRatio = (ratio: number) => {
+  const isDark =
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark");
   if (ratio <= 0) {
-    return { bg: "#e5e7eb", border: "#d1d5db" };
+    return isDark ? { bg: "#1f2937", border: "#273449" } : { bg: "#e2e8f0", border: "#e2e8f0" };
   }
-  // Purple ramp for >0% completion with a lighter start
+  // Purple ramp to align with app theme; lighter for low completion, darker for high.
+  // In dark mode, invert: brighter for higher completion
   const hue = 265;
   const saturation = 76;
-  const lightHigh = 92; // lightness near 0%
-  const lightLow = 38; // lightness at 100%
+  const lightHigh = isDark ? 32 : 88;
+  const lightLow = isDark ? 50 : 50;
   const clamped = Math.min(ratio, 1);
   const lightness = lightHigh - (lightHigh - lightLow) * clamped;
-  const borderLight = Math.max(lightness - 10, 26);
   return {
     bg: `hsl(${hue}deg ${saturation}% ${lightness}%)`,
-    border: `hsl(${hue}deg ${saturation + 6}% ${borderLight}%)`,
+    border: `hsl(${hue}deg ${saturation}% ${lightness}%)`,
   };
 };
 
@@ -97,6 +99,10 @@ const HomePage = () => {
   const [view, setView] = useState<"today" | "streaks" | "progress">("streaks");
   const [progressMode, setProgressMode] = useState<PeriodValue>("last-365");
   const [habitPeriods, setHabitPeriods] = useState<Record<string, PeriodValue>>({});
+  const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   const currentYear = new Date().getFullYear();
   const missingEnv = !supabase;
@@ -119,6 +125,25 @@ const HomePage = () => {
     );
     return () => listener?.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("ht-theme");
+    if (stored === "dark" || stored === "light") {
+      setTheme(stored);
+    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setTheme("dark");
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+    window.localStorage.setItem("ht-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!supabase || !session?.user) return;
@@ -198,6 +223,7 @@ const HomePage = () => {
     await supabase.auth.signOut();
     setHabits([]);
     setLogs([]);
+    setHabitPeriods({});
   };
 
   const todayList = useMemo(
@@ -293,68 +319,153 @@ const HomePage = () => {
     });
   }, [habits, logs, habitPeriods, todayDate]);
 
+  const handleRenameHabit = (habit: Habit) => {
+    setRenameTarget(habit);
+    setRenameValue(habit.title);
+    setRenameError(null);
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!supabase || !renameTarget) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenameError("Name cannot be empty.");
+      return;
+    }
+    if (trimmed === renameTarget.title) {
+      setRenameTarget(null);
+      setRenameValue("");
+      setRenameError(null);
+      return;
+    }
+
+    const { error } = await supabase.from("habits").update({ title: trimmed }).eq("id", renameTarget.id);
+    if (error) {
+      setRenameError(error.message);
+      return;
+    }
+    setHabits((prev) => prev.map((h) => (h.id === renameTarget.id ? { ...h, title: trimmed } : h)));
+    setRenameTarget(null);
+    setRenameValue("");
+    setRenameError(null);
+  };
+
+  const handleRenameCancel = () => {
+    setRenameTarget(null);
+    setRenameValue("");
+    setRenameError(null);
+  };
+
+  const handleDeleteHabit = async (habit: Habit) => {
+    if (!supabase) return;
+    const confirmed = window.confirm(`Delete "${habit.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+    const { error } = await supabase.from("habits").delete().eq("id", habit.id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setHabits((prev) => prev.filter((h) => h.id !== habit.id));
+    setLogs((prev) => prev.filter((l) => l.habit_id !== habit.id));
+    setHabitPeriods((prev) => {
+      const copy = { ...prev };
+      delete copy[habit.id];
+      return copy;
+    });
+  };
+
   if (!session?.user || !supabase) {
     return (
       <main className="page">
-        <header className="header">
+        <header className="header landing-header">
           <div>
-            <p className="eyebrow">Habit tracker</p>
-            <h1 className="title">Stay consistent every day</h1>
-            <p className="muted">
-              GitHub-style grids that turn your yearly habits into a visual streak.
+            <p className="eyebrow">Habit Tracker</p>
+            <h1 className="title landing-title">Build better habits, one day at a time</h1>
+            <p className="muted landing-subtitle">
+              Visualize your consistency with beautiful streak grids. Track multiple habits, see your progress at a glance, and stay motivated every day.
             </p>
           </div>
-          <Link href="/auth" className="button primary">
-            Sign in / Sign up
+          <Link href="/auth" className="button primary landing-cta">
+            Get started free
           </Link>
         </header>
 
         <div className="hero">
           <div className="hero-copy">
-            <p className="eyebrow">Why this app</p>
-            <h2>Clarity, accountability, and streaks you can see.</h2>
-            <p className="muted">
-              Create habits, mark days complete, and watch your consistency fill the grid. Securely
-              stored with Supabase.
-            </p>
-            <div className="feature-list">
-              <div className="pill">Email login</div>
-              <div className="pill">Daily toggle grid</div>
-              <div className="pill">Year view</div>
-              <div className="pill">Private data</div>
+            <div className="hero-badge">
+              <span className="badge-icon">✨</span>
+              <span>Simple, beautiful, effective</span>
             </div>
-            <div className="cta-row">
-              <Link href="/auth" className="button primary">
-                Get started
+            <h2 className="hero-title">Turn your habits into visual streaks</h2>
+            <p className="hero-description">
+              Create unlimited habits, mark them complete each day, and watch your consistency grow. 
+              Our GitHub-style grids make it easy to see your progress at a glance—motivating you to keep going.
+            </p>
+            <div className="feature-grid">
+              <div className="feature-item">
+                <div className="feature-icon">📊</div>
+                <div className="feature-content">
+                  <h3 className="feature-title">Visual Progress</h3>
+                  <p className="feature-text">See your entire year of habits in one beautiful grid</p>
+                </div>
+              </div>
+              <div className="feature-item">
+                <div className="feature-icon">🔒</div>
+                <div className="feature-content">
+                  <h3 className="feature-title">Private & Secure</h3>
+                  <p className="feature-text">Your data is encrypted and stored securely with Supabase</p>
+                </div>
+              </div>
+              <div className="feature-item">
+                <div className="feature-icon">📱</div>
+                <div className="feature-content">
+                  <h3 className="feature-title">Multiple Habits</h3>
+                  <p className="feature-text">Track as many habits as you want, each with its own color</p>
+                </div>
+              </div>
+              <div className="feature-item">
+                <div className="feature-icon">📈</div>
+                <div className="feature-content">
+                  <h3 className="feature-title">Progress Tracking</h3>
+                  <p className="feature-text">View combined progress across all your habits</p>
+                </div>
+              </div>
+            </div>
+            <div className="cta-section">
+              <Link href="/auth" className="button primary large">
+                Start tracking today
               </Link>
-              <span className="muted">Sign in to create your first habit.</span>
+              <p className="cta-note">No credit card required • Free forever</p>
             </div>
           </div>
           <div className="hero-card card">
             <div className="card-header">
               <div>
-                <p className="eyebrow">Preview</p>
-                <h3 className="card-title">Yearly streak grid</h3>
+                <p className="eyebrow">Live Preview</p>
+                <h3 className="card-title">Your habit streak</h3>
               </div>
-              <div className="chip">Live sync</div>
+              <div className="chip">Real-time</div>
             </div>
             <div className="hero-grid-placeholder">
-              <div className="grid-legend">
-                <span className="pill">Week</span>
-                <span className="pill">Today outlined</span>
-                <span className="pill">Click to toggle</span>
-              </div>
               <div className="placeholder-grid">
-                {Array.from({ length: 8 }).map((_, col) => (
+                {Array.from({ length: 12 }).map((_, col) => (
                   <div key={col} className="placeholder-week">
-                    {Array.from({ length: 7 }).map((_, row) => (
-                      <div
-                        key={`${col}-${row}`}
-                        className={`placeholder-day ${row % 2 === 0 ? "on" : ""}`}
-                      />
-                    ))}
+                    {Array.from({ length: 7 }).map((_, row) => {
+                      const isActive = Math.random() > 0.6;
+                      return (
+                        <div
+                          key={`${col}-${row}`}
+                          className={`placeholder-day ${isActive ? "on" : ""}`}
+                        />
+                      );
+                    })}
                   </div>
                 ))}
+              </div>
+              <div className="preview-footer">
+                <span className="preview-label">Each square = one day</span>
+                <span className="preview-label">•</span>
+                <span className="preview-label">Purple = completed</span>
               </div>
             </div>
           </div>
@@ -380,6 +491,13 @@ const HomePage = () => {
           <h1 className="title">Your habits for {currentYear}</h1>
         </div>
         <div className="stack row">
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          >
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </button>
           <button className="button primary" onClick={handleSignOut}>
             Sign out
           </button>
@@ -468,6 +586,9 @@ const HomePage = () => {
                     setHabitPeriods((prev) => ({ ...prev, [habit.id]: value }))
                   }
                   onToggle={(date, nextCompleted) => toggleLog(habit.id, date, nextCompleted)}
+                  readOnly
+                  onRename={handleRenameHabit}
+                  onDelete={handleDeleteHabit}
                 />
               ))}
             </div>
@@ -544,11 +665,20 @@ const HomePage = () => {
           </div>
 
           <div className="legend-row">
-            <div className="legend-dot" style={{ backgroundColor: "#e5e7eb", borderColor: "#d1d5db" }} />
+            <div
+              className="legend-dot"
+              style={{ backgroundColor: "#e2e8f0", borderColor: "#e2e8f0" }}
+            />
             <span className="muted">No completions</span>
-            <div className="legend-dot" style={{ backgroundColor: "hsl(265deg 76% 88%)", borderColor: "hsl(265deg 82% 76%)" }} />
+            <div
+              className="legend-dot"
+              style={{ backgroundColor: "hsl(265deg 76% 78%)", borderColor: "hsl(265deg 76% 78%)" }}
+            />
             <span className="muted">Some completions</span>
-            <div className="legend-dot" style={{ backgroundColor: "hsl(265deg 76% 42%)", borderColor: "hsl(265deg 82% 34%)" }} />
+            <div
+              className="legend-dot"
+              style={{ backgroundColor: "hsl(265deg 76% 50%)", borderColor: "hsl(265deg 76% 50%)" }}
+            />
             <span className="muted">All habits done</span>
           </div>
         </div>
@@ -572,6 +702,42 @@ const HomePage = () => {
               onCreated={handleHabitCreated}
               onDone={() => setHabitModalOpen(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <div className="card-header">
+              <div>
+                <p className="eyebrow">Rename</p>
+                <h3 className="card-title">Rename habit</h3>
+              </div>
+              <button className="button ghost" onClick={handleRenameCancel}>
+                ✕
+              </button>
+            </div>
+            <div className="stack">
+              <label className="field">
+                <span>Habit name</span>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="Enter a new name"
+                />
+              </label>
+              {renameError && <p className="muted">{renameError}</p>}
+              <div className="stack row">
+                <button className="button ghost" type="button" onClick={handleRenameCancel}>
+                  Cancel
+                </button>
+                <button className="button primary" type="button" onClick={handleRenameSubmit}>
+                  Save
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
