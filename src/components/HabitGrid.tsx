@@ -72,10 +72,15 @@ const HabitGrid = ({ habit, logs, year, onToggle }: HabitGridProps) => {
             {week.map((day) => {
               const log = logMap.get(day.iso);
               const completed = Boolean(log?.completed);
+              const tooltipLabel = day.date.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+              });
               return (
                 <button
                   key={day.iso}
                   role="gridcell"
+                  title={tooltipLabel}
                   aria-label={`${day.iso} ${completed ? "completed" : "not completed"}`}
                   className={[
                     "day-cell",

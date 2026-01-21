@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Habit } from "@/types";
 
@@ -6,13 +6,18 @@ type HabitFormProps = {
   supabase: SupabaseClient;
   userId: string;
   onCreated: (habit: Habit) => void;
+  onDone?: () => void;
 };
 
-const HabitForm = ({ supabase, userId, onCreated }: HabitFormProps) => {
+const presetColors = ["#22c55e", "#16a34a", "#0ea5e9", "#6366f1", "#f97316", "#ef4444", "#eab308"];
+
+const HabitForm = ({ supabase, userId, onCreated, onDone }: HabitFormProps) => {
   const [title, setTitle] = useState("");
-  const [color, setColor] = useState("#22c55e");
+  const [color, setColor] = useState(presetColors[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const colorOptions = useMemo(() => presetColors, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -34,6 +39,7 @@ const HabitForm = ({ supabase, userId, onCreated }: HabitFormProps) => {
     if (data) {
       onCreated(data as Habit);
       setTitle("");
+      onDone?.();
     }
     setLoading(false);
   };
@@ -50,18 +56,31 @@ const HabitForm = ({ supabase, userId, onCreated }: HabitFormProps) => {
           onChange={(e) => setTitle(e.target.value)}
         />
       </label>
-      <label className="field">
+      <div className="field">
         <span>Color</span>
-        <input
-          type="color"
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-          title="Color used in the grid"
-        />
-      </label>
-      <button className="button primary" type="submit" disabled={loading || !title}>
-        {loading ? "Saving..." : "Create habit"}
-      </button>
+        <div className="color-grid">
+          {colorOptions.map((option) => (
+            <button
+              type="button"
+              key={option}
+              aria-label={`Choose color ${option}`}
+              className={`color-swatch ${color === option ? "selected" : ""}`}
+              style={{ backgroundColor: option }}
+              onClick={() => setColor(option)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="stack row">
+        <button className="button primary" type="submit" disabled={loading || !title}>
+          {loading ? "Saving..." : "Create habit"}
+        </button>
+        {onDone && (
+          <button className="button ghost" type="button" onClick={onDone} disabled={loading}>
+            Cancel
+          </button>
+        )}
+      </div>
       {error && <p className="muted">{error}</p>}
     </form>
   );
