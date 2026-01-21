@@ -1,10 +1,15 @@
 import { useMemo } from "react";
+import PeriodSelect, { PeriodValue } from "@/components/PeriodSelect";
 import { Habit, HabitLog } from "@/types";
 
 type HabitGridProps = {
   habit: Habit;
   logs: HabitLog[];
-  year: number;
+  year?: number;
+  calendar?: CalendarDay[];
+  periodValue?: PeriodValue;
+  periodOptions?: PeriodValue[];
+  onPeriodChange?: (value: PeriodValue) => void;
   onToggle: (dateISO: string, nextCompleted: boolean) => void;
 };
 
@@ -41,8 +46,20 @@ const buildCalendar = (year: number): CalendarDay[] => {
   return days;
 };
 
-const HabitGrid = ({ habit, logs, year, onToggle }: HabitGridProps) => {
-  const calendar = useMemo(() => buildCalendar(year), [year]);
+const HabitGrid = ({
+  habit,
+  logs,
+  year,
+  calendar,
+  periodValue,
+  periodOptions,
+  onPeriodChange,
+  onToggle,
+}: HabitGridProps) => {
+  const calendarDays = useMemo(
+    () => calendar ?? buildCalendar(year ?? new Date().getFullYear()),
+    [calendar, year],
+  );
   const logMap = useMemo(() => {
     const map = new Map<string, HabitLog>();
     logs.forEach((log) => map.set(log.date, log));
@@ -50,11 +67,13 @@ const HabitGrid = ({ habit, logs, year, onToggle }: HabitGridProps) => {
   }, [logs]);
 
   const weeks = useMemo(() => {
-    const maxWeek = Math.max(...calendar.map((day) => day.weekIndex));
+    const maxWeek = Math.max(...calendarDays.map((day) => day.weekIndex));
     return Array.from({ length: maxWeek + 1 }, (_, weekIndex) =>
-      calendar.filter((day) => day.weekIndex === weekIndex),
+      calendarDays.filter((day) => day.weekIndex === weekIndex),
     );
-  }, [calendar]);
+  }, [calendarDays]);
+
+  const renderSelector = onPeriodChange && periodOptions && periodOptions.length > 0;
 
   return (
     <div className="grid-card">
@@ -63,46 +82,68 @@ const HabitGrid = ({ habit, logs, year, onToggle }: HabitGridProps) => {
           <p className="eyebrow">Habit</p>
           <h3 className="card-title">{habit.title}</h3>
         </div>
-        <div className="chip small">{year}</div>
+        {renderSelector ? (
+          <PeriodSelect
+            size="small"
+            value={periodValue ?? "last-365"}
+            options={periodOptions ?? []}
+            onChange={(val) => onPeriodChange?.(val)}
+          />
+        ) : year ? (
+          <div className="chip small">{year}</div>
+        ) : null}
       </div>
 
-      <div className="habit-grid" role="grid" aria-label={`${habit.title} streak view`}>
-        {weeks.map((week, weekIndex) => (
-          <div key={weekIndex} className="week-column" role="row">
-            {week.map((day) => {
-              const log = logMap.get(day.iso);
-              const completed = Boolean(log?.completed);
-              const tooltipLabel = day.date.toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-              });
-              return (
-                <button
-                  key={day.iso}
-                  role="gridcell"
-                  title={tooltipLabel}
-                  aria-label={`${day.iso} ${completed ? "completed" : "not completed"}`}
-                  className={[
-                    "day-cell",
-                    completed ? "completed" : "",
-                    day.isToday ? "today" : "",
-                  ]
-                    .join(" ")
-                    .trim()}
-                  style={
-                    completed
-                      ? {
-                          backgroundColor: habit.color ?? "#22c55e",
-                          borderColor: habit.color ?? "#16a34a",
-                        }
-                      : undefined
-                  }
-                  onClick={() => onToggle(day.iso, !completed)}
-                />
-              );
-            })}
-          </div>
-        ))}
+      <div className="habit-grid-wrapper">
+        <div className="weekday-legend" aria-hidden="true">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+            <span key={d} className="weekday-label">
+              {d}
+            </span>
+          ))}
+        </div>
+        <div className="habit-grid" role="grid" aria-label={`${habit.title} streak view`}>
+          {weeks.map((week, weekIndex) => (
+            <div key={weekIndex} className="week-column" role="row">
+              {Array.from({ length: 7 }, (_, dayIdx) => {
+                const day = week.find((d) => d.dayOfWeek === dayIdx);
+                if (!day) {
+                  return <span key={`empty-${weekIndex}-${dayIdx}`} className="day-cell placeholder" aria-hidden="true" />;
+                }
+                const log = logMap.get(day.iso);
+                const completed = Boolean(log?.completed);
+                const tooltipLabel = day.date.toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                });
+                return (
+                  <button
+                    key={day.iso}
+                    role="gridcell"
+                    title={tooltipLabel}
+                    aria-label={`${day.iso} ${completed ? "completed" : "not completed"}`}
+                    className={[
+                      "day-cell",
+                      completed ? "completed" : "",
+                      day.isToday ? "today" : "",
+                    ]
+                      .join(" ")
+                      .trim()}
+                    style={
+                      completed
+                        ? {
+                            backgroundColor: habit.color ?? "#22c55e",
+                            borderColor: habit.color ?? "#16a34a",
+                          }
+                        : undefined
+                    }
+                    onClick={() => onToggle(day.iso, !completed)}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
